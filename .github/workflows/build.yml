@@ -20,7 +20,7 @@ env:
 jobs:
   build:
     name: Build Silverblue image
-    runs-on: namespace-profile-silverblue-amd64-cached
+    runs-on: namespace-profile-silverblue-arm64-cached
     permissions:
       contents: read
       packages: write
