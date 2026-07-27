@@ -15,6 +15,10 @@ Confirm the image is active:
 sudo bootc status
 ```
 
+## Desktop defaults
+
+[Ghostty](https://copr.fedorainfracloud.org/coprs/scottames/ghostty/) replaces Ptyxis as the default terminal, and [Helium](https://copr.fedorainfracloud.org/coprs/imput/helium/) replaces Firefox as the default browser.
+
 ## Homebrew
 
 Homebrew is initialized automatically on the first boot. Start a new login shell after setup completes, then verify it:
