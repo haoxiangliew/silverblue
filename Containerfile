@@ -22,6 +22,7 @@ RUN --mount=type=cache,target=/var/cache \
     dnf -y copr enable scottames/ghostty && \
     dnf -y copr enable imput/helium && \
     dnf -y remove firefox firefox-langpacks ptyxis && \
+    rm -rf /usr/lib64/firefox && \
     dnf --refresh -y install ghostty helium-bin xdg-terminal-exec && \
     dnf -y copr remove scottames/ghostty && \
     dnf -y copr remove imput/helium && \
