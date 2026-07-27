@@ -1,0 +1,74 @@
+name: Build image
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  FEDORA_VERSION: "44"
+
+jobs:
+  build:
+    name: Build AMD64 image
+    runs-on: namespace-profile-silverblue-amd64-cached
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Check out repository
+        uses: namespacelabs/nscloud-checkout-action@v8
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Containerfile
+          platforms: linux/amd64
+          pull: true
+          push: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+          provenance: false
+          build-args: |
+            FEDORA_VERSION=${{ env.FEDORA_VERSION }}
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ env.FEDORA_VERSION }}
+            ${{ env.IMAGE }}:${{ env.FEDORA_VERSION }}-${{ github.run_id }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Fedora Silverblue ${{ env.FEDORA_VERSION }} with Nix and Homebrew compatibility
+            org.opencontainers.image.licenses=AGPL-3.0-only
+
+      - name: Record published image
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### Published image"
+            echo
+            echo "- Default channel: \`${IMAGE}:latest\`"
+            echo "- Channel: \`${IMAGE}:${FEDORA_VERSION}\`"
+            echo "- Build: \`${IMAGE}:${FEDORA_VERSION}-${GITHUB_RUN_ID}\`"
+            echo "- Digest: \`${DIGEST}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
