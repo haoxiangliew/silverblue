@@ -1,8 +1,7 @@
 ARG FEDORA_VERSION
 FROM quay.io/fedora/fedora-silverblue:${FEDORA_VERSION:-version-required}
 
-# Fedora's upstream Nix packages, with persistent storage configured below.
-RUN dnf -y install nix nix-daemon && \
+RUN dnf -y install gcc gcc-c++ make nix nix-daemon && \
     dnf clean all && \
     rm -rf \
         /run/dnf \
