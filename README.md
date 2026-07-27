@@ -1,5 +1,7 @@
 # Silverblue with Nix and Homebrew
 
+The published image supports AMD64 and ARM64 systems.
+
 After installing and booting Fedora Silverblue, switch to this image:
 
 ```bash
