@@ -26,19 +26,11 @@ brew --version
 
 ## Nix
 
-Install Determinate Nix after booting this image:
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSfL \
-  https://install.determinate.systems/nix/tag/v3.21.8 | \
-  sh -s -- install ostree --no-confirm --persistence=/var/lib/nix
-```
-
-The installer configures the persistent `/nix` mount and multi-user daemon. Verify the installation:
+The image includes Fedora's officially supported upstream `nix` and `nix-daemon` packages. The multi-user daemon and persistent `/nix` bind mount are configured automatically. Verify them after reboot:
 
 ```bash
 findmnt /nix
-systemctl status nix.mount nix-daemon.socket --no-pager
+systemctl status nix.mount nix-daemon.service --no-pager
 nix run nixpkgs#hello
 ```
 

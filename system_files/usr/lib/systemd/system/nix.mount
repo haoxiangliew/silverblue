@@ -1,0 +1,19 @@
+[Unit]
+Description=Persistent Nix store
+Documentation=https://src.fedoraproject.org/rpms/nix
+DefaultDependencies=no
+Requires=systemd-tmpfiles-setup.service
+After=systemd-tmpfiles-setup.service
+Before=nix-daemon.service nix-daemon.socket
+Before=umount.target
+Conflicts=umount.target
+
+[Mount]
+What=/var/lib/nix
+Where=/nix
+Type=none
+Options=bind
+
+[Install]
+RequiredBy=nix-daemon.service
+RequiredBy=nix-daemon.socket
