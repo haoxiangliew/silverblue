@@ -22,7 +22,9 @@ jobs:
     name: Build Silverblue image
     runs-on: namespace-profile-silverblue-arm64-cached
     permissions:
+      attestations: write
       contents: read
+      id-token: write
       packages: write
 
     steps:
@@ -48,6 +50,7 @@ jobs:
           no-cache-filters: packages
           push: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           provenance: mode=max
+          sbom: true
           build-args: |
             FEDORA_VERSION=${{ env.FEDORA_VERSION }}
           tags: |
@@ -59,10 +62,23 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.description=Fedora Silverblue ${{ env.FEDORA_VERSION }} with Nix and Homebrew compatibility
             org.opencontainers.image.licenses=AGPL-3.0-only
+          annotations: |
+            index,manifest,manifest-descriptor:org.opencontainers.image.description=Fedora Silverblue ${{ env.FEDORA_VERSION }} with Nix and Homebrew compatibility
+
+      - name: Attest published image
+        id: attest
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
 
       - name: Record published image
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
+          ATTESTATION_URL: ${{ steps.attest.outputs.attestation-url }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           {
@@ -72,4 +88,5 @@ jobs:
             echo "- Channel: \`${IMAGE}:${FEDORA_VERSION}\`"
             echo "- Build: \`${IMAGE}:${FEDORA_VERSION}-${GITHUB_RUN_ID}\`"
             echo "- Digest: \`${DIGEST}\`"
+            echo "- Attestation: ${ATTESTATION_URL}"
           } >> "${GITHUB_STEP_SUMMARY}"
