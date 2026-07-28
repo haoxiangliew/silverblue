@@ -161,9 +161,9 @@ jobs:
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ env.FEDORA_VERSION }}
             ${{ env.IMAGE }}:${{ env.FEDORA_VERSION }}-${{ github.run_id }}
+          # Source revisions live in provenance; volatile labels would create metadata-only upgrades.
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=AGPL-3.0-only
           annotations: |
