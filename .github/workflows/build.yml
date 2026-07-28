@@ -55,50 +55,11 @@ jobs:
         id: inputs
         run: bash .github/scripts/resolve-build-inputs.sh
 
-  resolve:
-    name: Combine build inputs
+  build:
+    name: Build ${{ matrix.variant }} image
     needs:
       - resolve_amd64
       - resolve_arm64
-    runs-on: namespace-profile-silverblue-arm64-cached
-    outputs:
-      brew_digest: ${{ steps.inputs.outputs.brew_digest }}
-      fedora_digest: ${{ steps.inputs.outputs.fedora_digest }}
-      package_fingerprint: ${{ steps.inputs.outputs.package_fingerprint }}
-    steps:
-      - name: Combine image inputs
-        id: inputs
-        env:
-          AMD64_BREW_DIGEST: ${{ needs.resolve_amd64.outputs.brew_digest }}
-          AMD64_FEDORA_DIGEST: ${{ needs.resolve_amd64.outputs.fedora_digest }}
-          AMD64_TRANSACTION: ${{ needs.resolve_amd64.outputs.transaction_fingerprint }}
-          ARM64_BREW_DIGEST: ${{ needs.resolve_arm64.outputs.brew_digest }}
-          ARM64_FEDORA_DIGEST: ${{ needs.resolve_arm64.outputs.fedora_digest }}
-          ARM64_TRANSACTION: ${{ needs.resolve_arm64.outputs.transaction_fingerprint }}
-        run: |
-          [[ "${AMD64_FEDORA_DIGEST}" == "${ARM64_FEDORA_DIGEST}" ]]
-          [[ "${AMD64_BREW_DIGEST}" == "${ARM64_BREW_DIGEST}" ]]
-          package_fingerprint="$(
-            printf 'amd64=%s\narm64=%s\n' \
-              "${AMD64_TRANSACTION}" "${ARM64_TRANSACTION}" |
-              sha256sum | cut -d ' ' -f 1
-          )"
-          {
-            echo "brew_digest=${AMD64_BREW_DIGEST}"
-            echo "fedora_digest=${AMD64_FEDORA_DIGEST}"
-            echo "package_fingerprint=${package_fingerprint}"
-          } >> "${GITHUB_OUTPUT}"
-          {
-            echo "### Combined build inputs"
-            echo
-            echo "- Fedora: \`${AMD64_FEDORA_DIGEST}\`"
-            echo "- Homebrew: \`${AMD64_BREW_DIGEST}\`"
-            echo "- DNF transaction: \`${package_fingerprint}\`"
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-  build:
-    name: Build ${{ matrix.variant }} image
-    needs: resolve
     runs-on: namespace-profile-silverblue-arm64-cached
     permissions:
       attestations: write
@@ -129,9 +90,19 @@ jobs:
         uses: namespacelabs/nscloud-checkout-action@v8
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v3
         with:
           cosign-release: v3.1.2
+
+      - name: Validate resolved inputs
+        env:
+          AMD64_BREW_DIGEST: ${{ needs.resolve_amd64.outputs.brew_digest }}
+          AMD64_FEDORA_DIGEST: ${{ needs.resolve_amd64.outputs.fedora_digest }}
+          ARM64_BREW_DIGEST: ${{ needs.resolve_arm64.outputs.brew_digest }}
+          ARM64_FEDORA_DIGEST: ${{ needs.resolve_arm64.outputs.fedora_digest }}
+        run: |
+          [[ "${AMD64_FEDORA_DIGEST}" == "${ARM64_FEDORA_DIGEST}" ]]
+          [[ "${AMD64_BREW_DIGEST}" == "${ARM64_BREW_DIGEST}" ]]
 
       - name: Resolve NVIDIA input
         id: nvidia
@@ -170,10 +141,10 @@ jobs:
           sbom: true
           build-args: |
             FEDORA_VERSION=${{ env.FEDORA_VERSION }}
-            FEDORA_IMAGE_DIGEST=${{ needs.resolve.outputs.fedora_digest }}
-            BREW_IMAGE_DIGEST=${{ needs.resolve.outputs.brew_digest }}
+            FEDORA_IMAGE_DIGEST=${{ needs.resolve_amd64.outputs.fedora_digest }}
+            BREW_IMAGE_DIGEST=${{ needs.resolve_amd64.outputs.brew_digest }}
             NVIDIA_AKMODS_DIGEST=${{ steps.nvidia.outputs.digest }}
-            PACKAGE_FINGERPRINT=${{ needs.resolve.outputs.package_fingerprint }}
+            PACKAGE_FINGERPRINT=${{ needs.resolve_amd64.outputs.transaction_fingerprint }}-${{ needs.resolve_arm64.outputs.transaction_fingerprint }}
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ env.FEDORA_VERSION }}
