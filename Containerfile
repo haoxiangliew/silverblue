@@ -9,7 +9,8 @@ ARG DNF_PACKAGES_BUILD="gcc gcc-c++ make"
 ARG DNF_PACKAGES_DESKTOP="ghostty helium-bin xdg-terminal-exec"
 ARG DNF_PACKAGES_REMOVE="firefox firefox-langpacks ptyxis"
 ARG DNF_PACKAGES_MULTIMEDIA="fdk-aac ffmpeg ffmpeg-libs ffmpegthumbnailer heif-pixbuf-loader libavcodec libfdk-aac libheif"
-ARG DNF_PACKAGES_MULTIMEDIA_OVERRIDES="intel-gmmlib intel-mediasdk intel-vpl-gpu-rt libheif libva libva-intel-media-driver mesa-dri-drivers mesa-filesystem mesa-libEGL mesa-libGL mesa-libgbm mesa-va-drivers mesa-vulkan-drivers"
+ARG DNF_PACKAGES_MULTIMEDIA_OVERRIDES="libheif libva mesa-dri-drivers mesa-filesystem mesa-libEGL mesa-libGL mesa-libgbm mesa-va-drivers mesa-vulkan-drivers"
+ARG DNF_PACKAGES_MULTIMEDIA_OVERRIDES_AMD64="intel-gmmlib intel-mediasdk intel-vpl-gpu-rt libva-intel-media-driver"
 ARG DNF_PACKAGES_AMD64="intel-vaapi-driver"
 ARG DNF_PACKAGES_NVIDIA_KERNEL="kernel kernel-core kernel-modules kernel-modules-core kernel-modules-extra"
 
@@ -25,6 +26,7 @@ ARG DNF_PACKAGES_DESKTOP
 ARG DNF_PACKAGES_REMOVE
 ARG DNF_PACKAGES_MULTIMEDIA
 ARG DNF_PACKAGES_MULTIMEDIA_OVERRIDES
+ARG DNF_PACKAGES_MULTIMEDIA_OVERRIDES_AMD64
 ARG DNF_PACKAGES_AMD64
 
 RUN --mount=type=cache,target=/var/cache \
@@ -48,8 +50,11 @@ RUN --mount=type=cache,target=/var/cache \
     dnf config-manager setopt fedora-multimedia.enabled=1 || \
       dnf config-manager addrepo --from-repofile="https://negativo17.org/repos/fedora-multimedia.repo" && \
     dnf config-manager setopt fedora-multimedia.priority=90 && \
-    dnf --refresh -y distro-sync --skip-unavailable --repo=fedora-multimedia \
-      ${DNF_PACKAGES_MULTIMEDIA_OVERRIDES} && \
+    set -- ${DNF_PACKAGES_MULTIMEDIA_OVERRIDES} && \
+    if [ "$(rpm -E '%{_arch}')" = x86_64 ]; then \
+      set -- "$@" ${DNF_PACKAGES_MULTIMEDIA_OVERRIDES_AMD64}; \
+    fi && \
+    dnf --refresh -y distro-sync --skip-unavailable --repo=fedora-multimedia "$@" && \
     dnf -y install ${DNF_PACKAGES_MULTIMEDIA} && \
     if [ "$(rpm -E '%{_arch}')" = x86_64 ]; then \
       dnf -y install ${DNF_PACKAGES_AMD64}; \
@@ -111,18 +116,23 @@ RUN --mount=type=bind,from=nvidia-akmods,source=/kernel-rpms,target=/tmp/kernel-
       rpm --erase "${package}" --nodeps; \
       set -- "$@" "/tmp/kernel-rpms/${package}-${KERNEL_VERSION}.rpm"; \
     done && \
+    rpm --erase kernel-tools kernel-tools-libs --nodeps && \
+    rm -rf /usr/lib/modules && \
     dnf -y install "$@" && \
     mv 05-rpmostree.install.bak 05-rpmostree.install && \
     mv 50-dracut.install.bak 50-dracut.install && \
+    install -d -m 0700 /var/roothome && \
     IMAGE_NAME=silverblue AKMODNV_PATH=/tmp/akmods-rpms \
       /tmp/akmods-rpms/ublue-os/nvidia-install.sh && \
     DRACUT_NO_XATTR=1 dracut --no-hostonly --kver "${KERNEL_VERSION}" \
       --reproducible --verbose --add ostree --force \
       "/lib/modules/${KERNEL_VERSION}/initramfs.img" && \
-    chmod 0600 "/lib/modules/${KERNEL_VERSION}/initramfs.img"
+    chmod 0600 "/lib/modules/${KERNEL_VERSION}/initramfs.img" && \
+    rm -rf /boot /var/lib/rpm-state && \
+    install -d -m 0755 /boot
 
-RUN bootc container lint
+RUN bootc container lint --fatal-warnings
 
 FROM configured AS silverblue
 
-RUN bootc container lint
+RUN bootc container lint --fatal-warnings

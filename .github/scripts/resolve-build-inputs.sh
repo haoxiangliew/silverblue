@@ -55,7 +55,7 @@ containerfile_packages() {
       group="${BASH_REMATCH[1]}"
       value="${BASH_REMATCH[2]}"
 
-      if [[ "${group}" == "MULTIMEDIA_OVERRIDES" ]]; then
+      if [[ "${group}" == MULTIMEDIA_OVERRIDES* ]]; then
         [[ "${transaction}" == "overrides" ]] || continue
       elif [[ "${transaction}" == "overrides" ]]; then
         continue
@@ -65,7 +65,7 @@ containerfile_packages() {
         REMOVE|NVIDIA_KERNEL)
           continue
           ;;
-        AMD64)
+        AMD64|*_AMD64)
           [[ "${architecture}" == "amd64" ]] || continue
           ;;
       esac

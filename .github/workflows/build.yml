@@ -30,7 +30,7 @@ jobs:
       transaction_fingerprint: ${{ steps.inputs.outputs.transaction_fingerprint }}
     steps:
       - name: Check out repository
-        uses: namespacelabs/nscloud-checkout-action@v8
+        uses: namespacelabs/nscloud-checkout-action@v9
 
       - name: Configure DNF cache
         uses: namespacelabs/nscloud-cache-action@v1
@@ -54,7 +54,7 @@ jobs:
       transaction_fingerprint: ${{ steps.inputs.outputs.transaction_fingerprint }}
     steps:
       - name: Check out repository
-        uses: namespacelabs/nscloud-checkout-action@v8
+        uses: namespacelabs/nscloud-checkout-action@v9
 
       - name: Configure DNF cache
         uses: namespacelabs/nscloud-cache-action@v1
@@ -70,7 +70,7 @@ jobs:
     needs:
       - resolve_amd64
       - resolve_arm64
-    runs-on: namespace-profile-silverblue-arm64-cached
+    runs-on: ${{ matrix.runner }}
     permissions:
       attestations: write
       contents: read
@@ -81,11 +81,13 @@ jobs:
       matrix:
         include:
           - variant: standard
+            runner: namespace-profile-silverblue-arm64-cached
             image_suffix: ""
             target: silverblue
             platforms: linux/amd64,linux/arm64
             description: Fedora Silverblue 44 with Nix, Homebrew, and multimedia support
           - variant: nvidia
+            runner: namespace-profile-silverblue-amd64-cached
             image_suffix: -nvidia
             target: nvidia
             platforms: linux/amd64
@@ -97,7 +99,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: namespacelabs/nscloud-checkout-action@v8
+        uses: namespacelabs/nscloud-checkout-action@v9
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.2
