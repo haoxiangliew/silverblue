@@ -124,6 +124,7 @@ RUN --mount=type=bind,from=nvidia-akmods,source=/kernel-rpms,target=/tmp/kernel-
     install -d -m 0700 /var/roothome && \
     IMAGE_NAME=silverblue AKMODNV_PATH=/tmp/akmods-rpms \
       /tmp/akmods-rpms/ublue-os/nvidia-install.sh && \
+    dnf -y copr remove ublue-os/staging && \
     DRACUT_NO_XATTR=1 dracut --no-hostonly --kver "${KERNEL_VERSION}" \
       --reproducible --verbose --add ostree --force \
       "/lib/modules/${KERNEL_VERSION}/initramfs.img" && \
