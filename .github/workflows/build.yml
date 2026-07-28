@@ -198,11 +198,9 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          cosign verify \
-            --new-bundle-format=false \
-            --key cosign.pub \
-            "${IMAGE}@${DIGEST}" > /dev/null
-
+          repository="${IMAGE#ghcr.io/}"
+          token="$(curl -fsSL \
+            "https://ghcr.io/token?scope=repository:${repository}:pull" | jq -r .token)"
           index="$(docker buildx imagetools inspect --raw "${IMAGE}@${DIGEST}")"
           mapfile -t subjects < <(
             jq -r '.manifests[] | select(.platform.os == "linux") | .digest' <<< "${index}"
@@ -211,12 +209,28 @@ jobs:
           for subject in "${subjects[@]}"; do
             signature="$(docker buildx imagetools inspect --raw \
               "${IMAGE}:sha256-${subject#sha256:}.sig")"
-            jq -e '
-              any(.layers[]?;
+            layer="$(jq -ce '
+              first(.layers[] | select(
                 .mediaType == "application/vnd.dev.cosign.simplesigning.v1+json" and
                 ((.annotations["dev.cosignproject.cosign/signature"] // "") | length > 0)
-              )
-            ' <<< "${signature}" > /dev/null
+              ))
+            ' <<< "${signature}")"
+            payload_digest="$(jq -r .digest <<< "${layer}")"
+            encoded_signature="$(
+              jq -r '.annotations["dev.cosignproject.cosign/signature"]' <<< "${layer}"
+            )"
+            payload="$(curl -fsSL -H "Authorization: Bearer ${token}" \
+              "https://ghcr.io/v2/${repository}/blobs/${payload_digest}")"
+            jq -e --arg image "${IMAGE}" --arg subject "${subject}" '
+              .critical.identity["docker-reference"] == $image and
+              .critical.image["docker-manifest-digest"] == $subject and
+              .critical.type == "cosign container image signature"
+            ' <<< "${payload}" > /dev/null
+            printf '%s' "${payload}" | cosign verify-blob \
+              --insecure-ignore-tlog=true \
+              --key cosign.pub \
+              --signature "${encoded_signature}" \
+              - > /dev/null
           done
 
       - name: Record published image
