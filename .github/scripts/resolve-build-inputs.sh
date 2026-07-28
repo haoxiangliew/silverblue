@@ -3,8 +3,11 @@
 set -euo pipefail
 
 : "${FEDORA_VERSION:?}"
+: "${ARCHITECTURE:?}"
 : "${GITHUB_OUTPUT:?}"
 : "${GITHUB_STEP_SUMMARY:?}"
+
+[[ "${ARCHITECTURE}" == "amd64" || "${ARCHITECTURE}" == "arm64" ]]
 
 fedora_tag="quay.io/fedora/fedora-silverblue:${FEDORA_VERSION}"
 brew_tag="ghcr.io/ublue-os/brew:latest"
@@ -19,7 +22,8 @@ manifest_digest() {
 }
 
 platform_digest() {
-  local architecture="$1"
+  local manifest="$1"
+  local architecture="$2"
   local -a digests
 
   mapfile -t digests < <(
@@ -27,7 +31,7 @@ platform_digest() {
       .manifests[] |
       select(.platform.os == "linux" and .platform.architecture == $architecture) |
       .digest
-    ' <<< "${fedora_manifest}"
+    ' <<< "${manifest}"
   )
   if ((${#digests[@]} != 1)) || [[ ! "${digests[0]}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
     echo "Expected one linux/${architecture} Fedora manifest digest" >&2
@@ -80,7 +84,7 @@ resolve_transaction() {
   mapfile -t packages < <(containerfile_packages "${architecture}" install)
   ((${#overrides[@]} > 0))
   ((${#packages[@]} > 0))
-  fedora_platform_image="${fedora_tag}@$(platform_digest "${architecture}")"
+  fedora_platform_image="${fedora_tag}@$(platform_digest "${fedora_manifest}" "${architecture}")"
   echo "Resolving ${architecture} packages from ${fedora_platform_image}" >&2
 
   docker run --rm --platform "linux/${architecture}" \
@@ -121,30 +125,24 @@ fedora_manifest="$(docker buildx imagetools inspect --raw "${fedora_tag}")"
 brew_manifest="$(docker buildx imagetools inspect --raw "${brew_tag}")"
 fedora_digest="$(manifest_digest "${fedora_manifest}")"
 brew_digest="$(manifest_digest "${brew_manifest}")"
-
-amd64_transaction="$(resolve_transaction amd64)"
-arm64_transaction="$(resolve_transaction arm64)"
-transactions="$(
-  printf '%s\n' "${amd64_transaction}" | sed 's/^/amd64=/'
-  printf '%s\n' "${arm64_transaction}" | sed 's/^/arm64=/'
-)"
+transaction="$(resolve_transaction "${ARCHITECTURE}")"
 package_inventory="$(LC_ALL=C sed -n '/^ARG DNF_PACKAGES_/p' Containerfile | sort)"
 fingerprint_input="$(
   printf 'declaration=%s\n' "${package_inventory}"
-  printf '%s\n' "${transactions}"
+  printf '%s\n' "${transaction}" | sed "s/^/${ARCHITECTURE}=/"
   )"
-package_fingerprint="$(printf '%s\n' "${fingerprint_input}" | sha256sum | cut -d ' ' -f 1)"
+transaction_fingerprint="$(printf '%s\n' "${fingerprint_input}" | sha256sum | cut -d ' ' -f 1)"
 
 {
   echo "fedora_digest=${fedora_digest}"
   echo "brew_digest=${brew_digest}"
-  echo "package_fingerprint=${package_fingerprint}"
+  echo "transaction_fingerprint=${transaction_fingerprint}"
 } >> "${GITHUB_OUTPUT}"
 
 {
-  echo "### Resolved build inputs"
+  echo "### Resolved ${ARCHITECTURE} inputs"
   echo
   echo "- Fedora: \`${fedora_digest}\`"
   echo "- Homebrew: \`${brew_digest}\`"
-  echo "- DNF transaction: \`${package_fingerprint}\`"
+  echo "- DNF transaction: \`${transaction_fingerprint}\`"
 } >> "${GITHUB_STEP_SUMMARY}"
