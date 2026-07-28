@@ -9,20 +9,31 @@ set -euo pipefail
 fedora_tag="quay.io/fedora/fedora-silverblue:${FEDORA_VERSION}"
 brew_tag="ghcr.io/ublue-os/brew:latest"
 
-image_digest() {
-  docker buildx imagetools inspect --format '{{ .Manifest.Digest }}' "$1"
+manifest_digest() {
+  local manifest="$1"
+  local digest
+
+  digest="sha256:$(printf '%s' "${manifest}" | sha256sum | cut -d ' ' -f 1)"
+  [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+  printf '%s\n' "${digest}"
 }
 
 platform_digest() {
-  local image="$1"
-  local architecture="$2"
+  local architecture="$1"
+  local -a digests
 
-  docker buildx imagetools inspect --raw "${image}" |
+  mapfile -t digests < <(
     jq -er --arg architecture "${architecture}" '
       .manifests[] |
       select(.platform.os == "linux" and .platform.architecture == $architecture) |
       .digest
-    '
+    ' <<< "${fedora_manifest}"
+  )
+  if ((${#digests[@]} != 1)) || [[ ! "${digests[0]}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "Expected one linux/${architecture} Fedora manifest digest" >&2
+    return 1
+  fi
+  printf '%s\n' "${digests[0]}"
 }
 
 containerfile_packages() {
@@ -69,7 +80,8 @@ resolve_transaction() {
   mapfile -t packages < <(containerfile_packages "${architecture}" install)
   ((${#overrides[@]} > 0))
   ((${#packages[@]} > 0))
-  fedora_platform_image="${fedora_tag}@$(platform_digest "${fedora_image}" "${architecture}")"
+  fedora_platform_image="${fedora_tag}@$(platform_digest "${architecture}")"
+  echo "Resolving ${architecture} packages from ${fedora_platform_image}" >&2
 
   docker run --rm --platform "linux/${architecture}" \
     --env "OVERRIDE_PACKAGES=${overrides[*]}" \
@@ -105,9 +117,10 @@ resolve_transaction() {
     ' resolve "${packages[@]}"
 }
 
-fedora_digest="$(image_digest "${fedora_tag}")"
-brew_digest="$(image_digest "${brew_tag}")"
-fedora_image="${fedora_tag}@${fedora_digest}"
+fedora_manifest="$(docker buildx imagetools inspect --raw "${fedora_tag}")"
+brew_manifest="$(docker buildx imagetools inspect --raw "${brew_tag}")"
+fedora_digest="$(manifest_digest "${fedora_manifest}")"
+brew_digest="$(manifest_digest "${brew_manifest}")"
 
 amd64_transaction="$(resolve_transaction amd64)"
 arm64_transaction="$(resolve_transaction arm64)"

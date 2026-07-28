@@ -75,8 +75,10 @@ jobs:
         id: nvidia
         if: matrix.variant == 'nvidia'
         run: |
-          digest="$(docker buildx imagetools inspect --format '{{ .Manifest.Digest }}' \
+          manifest="$(docker buildx imagetools inspect --raw \
             "ghcr.io/ublue-os/akmods-nvidia-lts:main-${FEDORA_VERSION}")"
+          digest="sha256:$(printf '%s' "${manifest}" | sha256sum | cut -d ' ' -f 1)"
+          [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
           echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
           {
             echo "### NVIDIA input"
