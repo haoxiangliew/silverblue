@@ -104,7 +104,7 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.2
         with:
-          cosign-release: v3.1.2
+          cosign-release: v2.6.4
 
       - name: Validate resolved inputs
         env:
@@ -188,9 +188,36 @@ jobs:
         run: |
           # containers/image sigstoreSigned verification still discovers tag-based attachments.
           cosign sign --yes --recursive \
+            --new-bundle-format=false \
             --registry-referrers-mode legacy \
             --key env://COSIGN_PRIVATE_KEY \
             "${IMAGE}@${DIGEST}"
+
+      - name: Verify published image signature
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign verify \
+            --new-bundle-format=false \
+            --key cosign.pub \
+            "${IMAGE}@${DIGEST}" > /dev/null
+
+          index="$(docker buildx imagetools inspect --raw "${IMAGE}@${DIGEST}")"
+          mapfile -t subjects < <(
+            jq -r '.manifests[] | select(.platform.os == "linux") | .digest' <<< "${index}"
+          )
+          subjects+=("${DIGEST}")
+          for subject in "${subjects[@]}"; do
+            signature="$(docker buildx imagetools inspect --raw \
+              "${IMAGE}:sha256-${subject#sha256:}.sig")"
+            jq -e '
+              any(.layers[]?;
+                .mediaType == "application/vnd.dev.cosign.simplesigning.v1+json" and
+                ((.annotations["dev.cosignproject.cosign/signature"] // "") | length > 0)
+              )
+            ' <<< "${signature}" > /dev/null
+          done
 
       - name: Record published image
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
