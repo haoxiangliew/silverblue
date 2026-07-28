@@ -6,11 +6,14 @@ set -euo pipefail
 : "${ARCHITECTURE:?}"
 : "${GITHUB_OUTPUT:?}"
 : "${GITHUB_STEP_SUMMARY:?}"
+: "${HOME:?}"
 
 [[ "${ARCHITECTURE}" == "amd64" || "${ARCHITECTURE}" == "arm64" ]]
 
 fedora_tag="quay.io/fedora/fedora-silverblue:${FEDORA_VERSION}"
 brew_tag="ghcr.io/ublue-os/brew:latest"
+resolver_tag="quay.io/fedora/fedora:${FEDORA_VERSION}"
+resolver_cache="${HOME}/.cache/silverblue-dnf"
 
 manifest_digest() {
   local manifest="$1"
@@ -77,31 +80,36 @@ containerfile_packages() {
 
 resolve_transaction() {
   local architecture="$1"
-  local fedora_platform_image
   local -a overrides packages
 
   mapfile -t overrides < <(containerfile_packages "${architecture}" overrides)
   mapfile -t packages < <(containerfile_packages "${architecture}" install)
   ((${#overrides[@]} > 0))
   ((${#packages[@]} > 0))
-  fedora_platform_image="${fedora_tag}@$(platform_digest "${fedora_manifest}" "${architecture}")"
-  echo "Resolving ${architecture} packages from ${fedora_platform_image}" >&2
+  packages+=("${overrides[@]}")
+  echo "Resolving ${architecture} package metadata with ${resolver_image}" >&2
 
   docker run --rm --platform "linux/${architecture}" \
-    --env "OVERRIDE_PACKAGES=${overrides[*]}" \
-    --entrypoint /bin/bash "${fedora_platform_image}" -ceu '
+    --env "FEDORA_VERSION=${FEDORA_VERSION}" \
+    --mount "type=bind,source=${resolver_cache},target=/var/cache" \
+    --entrypoint /bin/bash "${resolver_image}" -ceu '
       dnf config-manager setopt fedora-multimedia.enabled=1 2>/dev/null ||
         dnf config-manager addrepo --from-repofile=https://negativo17.org/repos/fedora-multimedia.repo >&2
       dnf config-manager setopt fedora-multimedia.priority=90 >&2
       dnf -y copr enable scottames/ghostty >&2
       dnf -y copr enable imput/helium >&2
       mkdir -p /tmp/resolve
+      mkdir -p /tmp/resolve-root
       cd /tmp/resolve
 
       resolve() {
         rm -rf debugdata
         set +e
-        dnf --quiet --refresh --debugsolver --assumeno "$@" >solver.log 2>&1
+        dnf --installroot=/tmp/resolve-root \
+          --use-host-config \
+          --releasever="${FEDORA_VERSION}" \
+          --quiet --refresh --debugsolver --assumeno \
+          "$@" >solver.log 2>&1
         status=$?
         set -e
 
@@ -113,9 +121,6 @@ resolve_transaction() {
           LC_ALL=C sort -u
       }
 
-      read -r -a overrides <<< "${OVERRIDE_PACKAGES}"
-      resolve distro-sync --skip-unavailable --repo=fedora-multimedia \
-        "${overrides[@]}" | sed "s/^/override=/"
       resolve install --allowerasing --skip-unavailable "$@" |
         sed "s/^/install=/"
     ' resolve "${packages[@]}"
@@ -123,9 +128,13 @@ resolve_transaction() {
 
 fedora_manifest="$(docker buildx imagetools inspect --raw "${fedora_tag}")"
 brew_manifest="$(docker buildx imagetools inspect --raw "${brew_tag}")"
+resolver_manifest="$(docker buildx imagetools inspect --raw "${resolver_tag}")"
 fedora_digest="$(manifest_digest "${fedora_manifest}")"
 brew_digest="$(manifest_digest "${brew_manifest}")"
+resolver_image="${resolver_tag}@$(platform_digest "${resolver_manifest}" "${ARCHITECTURE}")"
+mkdir -p "${resolver_cache}"
 transaction="$(resolve_transaction "${ARCHITECTURE}")"
+[[ -n "${transaction}" ]]
 package_inventory="$(LC_ALL=C sed -n '/^ARG DNF_PACKAGES_/p' Containerfile | sort)"
 fingerprint_input="$(
   printf 'declaration=%s\n' "${package_inventory}"

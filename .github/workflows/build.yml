@@ -32,6 +32,11 @@ jobs:
       - name: Check out repository
         uses: namespacelabs/nscloud-checkout-action@v8
 
+      - name: Configure DNF cache
+        uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          path: ~/.cache/silverblue-dnf
+
       - name: Resolve image inputs
         id: inputs
         run: bash .github/scripts/resolve-build-inputs.sh
@@ -50,6 +55,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: namespacelabs/nscloud-checkout-action@v8
+
+      - name: Configure DNF cache
+        uses: namespacelabs/nscloud-cache-action@v1
+        with:
+          path: ~/.cache/silverblue-dnf
 
       - name: Resolve image inputs
         id: inputs
@@ -90,7 +100,7 @@ jobs:
         uses: namespacelabs/nscloud-checkout-action@v8
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4.1.2
         with:
           cosign-release: v3.1.2
 
@@ -174,8 +184,8 @@ jobs:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
+          # containers/image sigstoreSigned verification still discovers tag-based attachments.
           cosign sign --yes --recursive \
-            --new-bundle-format=false \
             --registry-referrers-mode legacy \
             --key env://COSIGN_PRIVATE_KEY \
             "${IMAGE}@${DIGEST}"
