@@ -74,8 +74,14 @@ nix run nixpkgs#hello
 
 ```bash
 sudo rpm-ostree upgrade
+rpm-ostree db diff
 sudo reboot
 ```
+
+Container-image update previews report changed OCI layers rather than package
+names. After the update is staged, `rpm-ostree db diff` compares its RPM
+database with the booted deployment. Keep the upgrade and reboot as separate
+commands so the package diff can be reviewed first.
 
 ## Rollback
 
