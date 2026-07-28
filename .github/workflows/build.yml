@@ -14,22 +14,75 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/${{ github.repository }}
   FEDORA_VERSION: "44"
 
 jobs:
+  resolve:
+    name: Resolve build inputs
+    runs-on: namespace-profile-silverblue-arm64-cached
+    permissions:
+      contents: read
+    outputs:
+      brew_digest: ${{ steps.inputs.outputs.brew_digest }}
+      fedora_digest: ${{ steps.inputs.outputs.fedora_digest }}
+      package_fingerprint: ${{ steps.inputs.outputs.package_fingerprint }}
+    steps:
+      - name: Check out repository
+        uses: namespacelabs/nscloud-checkout-action@v8
+
+      - name: Resolve image inputs
+        id: inputs
+        run: bash .github/scripts/resolve-build-inputs.sh
+
   build:
-    name: Build Silverblue image
+    name: Build ${{ matrix.variant }} image
+    needs: resolve
     runs-on: namespace-profile-silverblue-arm64-cached
     permissions:
       attestations: write
       contents: read
       id-token: write
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: standard
+            image_suffix: ""
+            target: silverblue
+            platforms: linux/amd64,linux/arm64
+            description: Fedora Silverblue 44 with Nix, Homebrew, and multimedia support
+          - variant: nvidia
+            image_suffix: -nvidia
+            target: nvidia
+            platforms: linux/amd64
+            description: Fedora Silverblue 44 with proprietary NVIDIA LTS drivers, Nix, Homebrew, and multimedia support
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}${{ matrix.image_suffix }}
+      PLATFORMS: ${{ matrix.platforms }}
+      VARIANT: ${{ matrix.variant }}
 
     steps:
       - name: Check out repository
         uses: namespacelabs/nscloud-checkout-action@v8
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v4
+        with:
+          cosign-release: v3.1.2
+
+      - name: Resolve NVIDIA input
+        id: nvidia
+        if: matrix.variant == 'nvidia'
+        run: |
+          digest="$(docker buildx imagetools inspect --format '{{ .Manifest.Digest }}' \
+            "ghcr.io/ublue-os/akmods-nvidia-lts:main-${FEDORA_VERSION}")"
+          echo "digest=${digest}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "### NVIDIA input"
+            echo
+            echo "- NVIDIA LTS artifact: \`${digest}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Log in to GHCR
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
@@ -45,14 +98,18 @@ jobs:
         with:
           context: .
           file: ./Containerfile
-          platforms: linux/amd64,linux/arm64
+          target: ${{ matrix.target }}
+          platforms: ${{ matrix.platforms }}
           pull: true
-          no-cache-filters: packages
           push: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           provenance: mode=max
           sbom: true
           build-args: |
             FEDORA_VERSION=${{ env.FEDORA_VERSION }}
+            FEDORA_IMAGE_DIGEST=${{ needs.resolve.outputs.fedora_digest }}
+            BREW_IMAGE_DIGEST=${{ needs.resolve.outputs.brew_digest }}
+            NVIDIA_AKMODS_DIGEST=${{ steps.nvidia.outputs.digest }}
+            PACKAGE_FINGERPRINT=${{ needs.resolve.outputs.package_fingerprint }}
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ env.FEDORA_VERSION }}
@@ -60,10 +117,10 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.description=Fedora Silverblue ${{ env.FEDORA_VERSION }} with Nix and Homebrew compatibility
+            org.opencontainers.image.description=${{ matrix.description }}
             org.opencontainers.image.licenses=AGPL-3.0-only
           annotations: |
-            index,manifest,manifest-descriptor:org.opencontainers.image.description=Fedora Silverblue ${{ env.FEDORA_VERSION }} with Nix and Homebrew compatibility
+            index,manifest,manifest-descriptor:org.opencontainers.image.description=${{ matrix.description }}
 
       - name: Attest published image
         id: attest
@@ -75,6 +132,19 @@ jobs:
           push-to-registry: true
           create-storage-record: false
 
+      - name: Sign published image
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes --recursive \
+            --new-bundle-format=false \
+            --registry-referrers-mode legacy \
+            --key env://COSIGN_PRIVATE_KEY \
+            "${IMAGE}@${DIGEST}"
+
       - name: Record published image
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         env:
@@ -82,7 +152,7 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           {
-            echo "### Published image"
+            echo "### Published ${VARIANT} image"
             echo
             echo "- Default channel: \`${IMAGE}:latest\`"
             echo "- Channel: \`${IMAGE}:${FEDORA_VERSION}\`"

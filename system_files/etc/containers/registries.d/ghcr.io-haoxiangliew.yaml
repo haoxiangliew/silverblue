@@ -1,0 +1,5 @@
+docker:
+  ghcr.io/haoxiangliew/silverblue:
+    use-sigstore-attachments: true
+  ghcr.io/haoxiangliew/silverblue-nvidia:
+    use-sigstore-attachments: true

@@ -1,0 +1,137 @@
+#!/usr/bin/bash
+
+set -euo pipefail
+
+: "${FEDORA_VERSION:?}"
+: "${GITHUB_OUTPUT:?}"
+: "${GITHUB_STEP_SUMMARY:?}"
+
+fedora_tag="quay.io/fedora/fedora-silverblue:${FEDORA_VERSION}"
+brew_tag="ghcr.io/ublue-os/brew:latest"
+
+image_digest() {
+  docker buildx imagetools inspect --format '{{ .Manifest.Digest }}' "$1"
+}
+
+platform_digest() {
+  local image="$1"
+  local architecture="$2"
+
+  docker buildx imagetools inspect --raw "${image}" |
+    jq -er --arg architecture "${architecture}" '
+      .manifests[] |
+      select(.platform.os == "linux" and .platform.architecture == $architecture) |
+      .digest
+    '
+}
+
+containerfile_packages() {
+  local architecture="$1"
+  local transaction="$2"
+  local group line value
+  local pattern='^ARG[[:space:]]+DNF_PACKAGES_([A-Z0-9_]+)="([^"]*)"$'
+  local -a packages parsed
+
+  while IFS= read -r line; do
+    if [[ "${line}" =~ ${pattern} ]]; then
+      group="${BASH_REMATCH[1]}"
+      value="${BASH_REMATCH[2]}"
+
+      if [[ "${group}" == "MULTIMEDIA_OVERRIDES" ]]; then
+        [[ "${transaction}" == "overrides" ]] || continue
+      elif [[ "${transaction}" == "overrides" ]]; then
+        continue
+      fi
+
+      case "${group}" in
+        REMOVE|NVIDIA_KERNEL)
+          continue
+          ;;
+        AMD64)
+          [[ "${architecture}" == "amd64" ]] || continue
+          ;;
+      esac
+
+      read -r -a parsed <<< "${value}"
+      packages+=("${parsed[@]}")
+    fi
+  done < Containerfile
+
+  printf '%s\n' "${packages[@]}" | LC_ALL=C sort -u
+}
+
+resolve_transaction() {
+  local architecture="$1"
+  local fedora_platform_image
+  local -a overrides packages
+
+  mapfile -t overrides < <(containerfile_packages "${architecture}" overrides)
+  mapfile -t packages < <(containerfile_packages "${architecture}" install)
+  ((${#overrides[@]} > 0))
+  ((${#packages[@]} > 0))
+  fedora_platform_image="${fedora_tag}@$(platform_digest "${fedora_image}" "${architecture}")"
+
+  docker run --rm --platform "linux/${architecture}" \
+    --env "OVERRIDE_PACKAGES=${overrides[*]}" \
+    --entrypoint /bin/bash "${fedora_platform_image}" -ceu '
+      dnf config-manager setopt fedora-multimedia.enabled=1 2>/dev/null ||
+        dnf config-manager addrepo --from-repofile=https://negativo17.org/repos/fedora-multimedia.repo >&2
+      dnf config-manager setopt fedora-multimedia.priority=90 >&2
+      dnf -y copr enable scottames/ghostty >&2
+      dnf -y copr enable imput/helium >&2
+      mkdir -p /tmp/resolve
+      cd /tmp/resolve
+
+      resolve() {
+        rm -rf debugdata
+        set +e
+        dnf --quiet --refresh --debugsolver --assumeno "$@" >solver.log 2>&1
+        status=$?
+        set -e
+
+        if [[ "${status}" -ne 1 || ! -s debugdata/packages/solver.result ]]; then
+          cat solver.log >&2
+          return 1
+        fi
+        sed -E "s/@[^[:space:]]+$//" debugdata/packages/solver.result |
+          LC_ALL=C sort -u
+      }
+
+      read -r -a overrides <<< "${OVERRIDE_PACKAGES}"
+      resolve distro-sync --skip-unavailable --repo=fedora-multimedia \
+        "${overrides[@]}" | sed "s/^/override=/"
+      resolve install --allowerasing --skip-unavailable "$@" |
+        sed "s/^/install=/"
+    ' resolve "${packages[@]}"
+}
+
+fedora_digest="$(image_digest "${fedora_tag}")"
+brew_digest="$(image_digest "${brew_tag}")"
+fedora_image="${fedora_tag}@${fedora_digest}"
+
+amd64_transaction="$(resolve_transaction amd64)"
+arm64_transaction="$(resolve_transaction arm64)"
+transactions="$(
+  printf '%s\n' "${amd64_transaction}" | sed 's/^/amd64=/'
+  printf '%s\n' "${arm64_transaction}" | sed 's/^/arm64=/'
+)"
+package_inventory="$(LC_ALL=C sed -n '/^ARG DNF_PACKAGES_/p' Containerfile | sort)"
+fingerprint_input="$(
+  printf 'declaration=%s\n' "${package_inventory}"
+  printf '%s\n' "${transactions}"
+  )"
+package_fingerprint="$(printf '%s\n' "${fingerprint_input}" | sha256sum | cut -d ' ' -f 1)"
+
+{
+  echo "fedora_digest=${fedora_digest}"
+  echo "brew_digest=${brew_digest}"
+  echo "package_fingerprint=${package_fingerprint}"
+} >> "${GITHUB_OUTPUT}"
+
+{
+  echo "### Resolved build inputs"
+  echo
+  echo "- Fedora: \`${fedora_digest}\`"
+  echo "- Homebrew: \`${brew_digest}\`"
+  echo "- DNF transaction: \`${package_fingerprint}\`"
+} >> "${GITHUB_STEP_SUMMARY}"
