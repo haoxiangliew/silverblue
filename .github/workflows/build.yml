@@ -219,6 +219,7 @@ jobs:
             encoded_signature="$(
               jq -r '.annotations["dev.cosignproject.cosign/signature"]' <<< "${layer}"
             )"
+            bundle="$(jq -er '.annotations["dev.sigstore.cosign/bundle"]' <<< "${layer}")"
             payload="$(curl -fsSL -H "Authorization: Bearer ${token}" \
               "https://ghcr.io/v2/${repository}/blobs/${payload_digest}")"
             jq -e --arg image "${IMAGE}" --arg subject "${subject}" '
@@ -226,11 +227,14 @@ jobs:
               .critical.image["docker-manifest-digest"] == $subject and
               .critical.type == "cosign container image signature"
             ' <<< "${payload}" > /dev/null
+            bundle_file="${RUNNER_TEMP}/cosign-bundle-${subject#sha256:}.json"
+            printf '%s' "${bundle}" > "${bundle_file}"
             printf '%s' "${payload}" | cosign verify-blob \
-              --insecure-ignore-tlog=true \
+              --bundle "${bundle_file}" \
               --key cosign.pub \
               --signature "${encoded_signature}" \
               - > /dev/null
+            rm -f "${bundle_file}"
           done
 
       - name: Record published image
