@@ -8,7 +8,7 @@ set -euo pipefail
 : "${GITHUB_STEP_SUMMARY:?}"
 : "${HOME:?}"
 
-[[ "${ARCHITECTURE}" == "amd64" || "${ARCHITECTURE}" == "arm64" ]]
+[[ ${ARCHITECTURE} == "amd64" || ${ARCHITECTURE} == "arm64" ]]
 
 fedora_tag="quay.io/fedora/fedora-silverblue:${FEDORA_VERSION}"
 brew_tag="ghcr.io/ublue-os/brew:latest"
@@ -20,7 +20,7 @@ manifest_digest() {
   local digest
 
   digest="sha256:$(printf '%s' "${manifest}" | sha256sum | cut -d ' ' -f 1)"
-  [[ "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+  [[ ${digest} =~ ^sha256:[0-9a-f]{64}$ ]]
   printf '%s\n' "${digest}"
 }
 
@@ -34,9 +34,9 @@ platform_digest() {
       .manifests[] |
       select(.platform.os == "linux" and .platform.architecture == $architecture) |
       .digest
-    ' <<< "${manifest}"
+    ' <<<"${manifest}"
   )
-  if ((${#digests[@]} != 1)) || [[ ! "${digests[0]}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  if ((${#digests[@]} != 1)) || [[ ! ${digests[0]} =~ ^sha256:[0-9a-f]{64}$ ]]; then
     echo "Expected one linux/${architecture} Fedora manifest digest" >&2
     return 1
   fi
@@ -51,29 +51,29 @@ containerfile_packages() {
   local -a packages parsed
 
   while IFS= read -r line; do
-    if [[ "${line}" =~ ${pattern} ]]; then
+    if [[ ${line} =~ ${pattern} ]]; then
       group="${BASH_REMATCH[1]}"
       value="${BASH_REMATCH[2]}"
 
-      if [[ "${group}" == MULTIMEDIA_OVERRIDES* ]]; then
-        [[ "${transaction}" == "overrides" ]] || continue
-      elif [[ "${transaction}" == "overrides" ]]; then
+      if [[ ${group} == MULTIMEDIA_OVERRIDES* ]]; then
+        [[ ${transaction} == "overrides" ]] || continue
+      elif [[ ${transaction} == "overrides" ]]; then
         continue
       fi
 
       case "${group}" in
-        REMOVE|NVIDIA_KERNEL)
-          continue
-          ;;
-        AMD64|*_AMD64)
-          [[ "${architecture}" == "amd64" ]] || continue
-          ;;
+      REMOVE | NVIDIA_KERNEL)
+        continue
+        ;;
+      AMD64 | *_AMD64)
+        [[ ${architecture} == "amd64" ]] || continue
+        ;;
       esac
 
-      read -r -a parsed <<< "${value}"
+      read -r -a parsed <<<"${value}"
       packages+=("${parsed[@]}")
     fi
-  done < Containerfile
+  done <Containerfile
 
   printf '%s\n' "${packages[@]}" | LC_ALL=C sort -u
 }
@@ -134,19 +134,19 @@ brew_digest="$(manifest_digest "${brew_manifest}")"
 resolver_image="${resolver_tag}@$(platform_digest "${resolver_manifest}" "${ARCHITECTURE}")"
 mkdir -p "${resolver_cache}"
 transaction="$(resolve_transaction "${ARCHITECTURE}")"
-[[ -n "${transaction}" ]]
+[[ -n ${transaction} ]]
 package_inventory="$(LC_ALL=C sed -n '/^ARG DNF_PACKAGES_/p' Containerfile | sort)"
 fingerprint_input="$(
   printf 'declaration=%s\n' "${package_inventory}"
   printf '%s\n' "${transaction}" | sed "s/^/${ARCHITECTURE}=/"
-  )"
+)"
 transaction_fingerprint="$(printf '%s\n' "${fingerprint_input}" | sha256sum | cut -d ' ' -f 1)"
 
 {
   echo "fedora_digest=${fedora_digest}"
   echo "brew_digest=${brew_digest}"
   echo "transaction_fingerprint=${transaction_fingerprint}"
-} >> "${GITHUB_OUTPUT}"
+} >>"${GITHUB_OUTPUT}"
 
 {
   echo "### Resolved ${ARCHITECTURE} inputs"
@@ -154,4 +154,4 @@ transaction_fingerprint="$(printf '%s\n' "${fingerprint_input}" | sha256sum | cu
   echo "- Fedora: \`${fedora_digest}\`"
   echo "- Homebrew: \`${brew_digest}\`"
   echo "- DNF transaction: \`${transaction_fingerprint}\`"
-} >> "${GITHUB_STEP_SUMMARY}"
+} >>"${GITHUB_STEP_SUMMARY}"

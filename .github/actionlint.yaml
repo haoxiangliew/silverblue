@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    - namespace-profile-silverblue-amd64-cached
+    - namespace-profile-silverblue-arm64-cached
