@@ -19,7 +19,7 @@ env:
 jobs:
   resolve_amd64:
     name: Resolve AMD64 inputs
-    runs-on: namespace-profile-silverblue-amd64-cached
+    runs-on: namespace-profile-silverblue-amd64
     env:
       ARCHITECTURE: amd64
     permissions:
@@ -43,7 +43,7 @@ jobs:
 
   resolve_arm64:
     name: Resolve ARM64 inputs
-    runs-on: namespace-profile-silverblue-arm64-cached
+    runs-on: namespace-profile-silverblue-arm64
     env:
       ARCHITECTURE: arm64
     permissions:
@@ -81,13 +81,13 @@ jobs:
       matrix:
         include:
           - variant: standard
-            runner: namespace-profile-silverblue-arm64-cached
+            runner: namespace-profile-silverblue-arm64
             image_suffix: ""
             target: silverblue
             platforms: linux/amd64,linux/arm64
             description: Fedora Silverblue 44 with Nix, Homebrew, and multimedia support
           - variant: nvidia
-            runner: namespace-profile-silverblue-amd64-cached
+            runner: namespace-profile-silverblue-amd64
             image_suffix: -nvidia
             target: nvidia
             platforms: linux/amd64
