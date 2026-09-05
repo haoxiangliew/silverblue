@@ -30,7 +30,7 @@ jobs:
       transaction_fingerprint: ${{ steps.inputs.outputs.transaction_fingerprint }}
     steps:
       - name: Check out repository
-        uses: namespacelabs/nscloud-checkout-action@v9
+        uses: actions/checkout@v7
 
       - name: Resolve image inputs
         id: inputs
@@ -49,7 +49,7 @@ jobs:
       transaction_fingerprint: ${{ steps.inputs.outputs.transaction_fingerprint }}
     steps:
       - name: Check out repository
-        uses: namespacelabs/nscloud-checkout-action@v9
+        uses: actions/checkout@v7
 
       - name: Resolve image inputs
         id: inputs
@@ -89,7 +89,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: namespacelabs/nscloud-checkout-action@v9
+        uses: actions/checkout@v7
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v4.1.2
