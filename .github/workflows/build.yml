@@ -32,11 +32,6 @@ jobs:
       - name: Check out repository
         uses: namespacelabs/nscloud-checkout-action@v9
 
-      - name: Configure DNF cache
-        uses: namespacelabs/nscloud-cache-action@v1
-        with:
-          path: ~/.cache/silverblue-dnf
-
       - name: Resolve image inputs
         id: inputs
         run: bash .github/scripts/resolve-build-inputs.sh
@@ -55,11 +50,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: namespacelabs/nscloud-checkout-action@v9
-
-      - name: Configure DNF cache
-        uses: namespacelabs/nscloud-cache-action@v1
-        with:
-          path: ~/.cache/silverblue-dnf
 
       - name: Resolve image inputs
         id: inputs
