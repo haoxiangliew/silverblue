@@ -17,6 +17,18 @@ env:
   FEDORA_VERSION: "44"
 
 jobs:
+  keepalive:
+    name: Keep schedule enabled
+    if: github.event_name == 'schedule'
+    runs-on: namespace-profile-silverblue-amd64
+    permissions:
+      actions: write
+    steps:
+      - name: Re-enable scheduled workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/build.yml/enable"
+
   resolve_amd64:
     name: Resolve AMD64 inputs
     runs-on: namespace-profile-silverblue-amd64
